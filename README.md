@@ -1,0 +1,26 @@
+# Messenger API
+
+Мессенджер на FastAPI + WebSockets.
+
+## Быстрый старт
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Документация: `http://localhost:8000/api/v1/docs`
+
+## Основные возможности
+
+- JWT-аутентификация
+- Пользователи, чаты, история сообщений
+- WebSocket для реального времени
+
+## WebSocket
+
+`ws://localhost:8000/ws?token=<JWT_TOKEN>`
+
+Типы сообщений: `message`, `typing`, `read`, `ping`.
