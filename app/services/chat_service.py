@@ -1,10 +1,11 @@
 """Chat management business logic."""
 
 from fastapi import HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import Session, select, delete
+from sqlalchemy import desc
 
-from app.models import Chat, ChatParticipant, User
-from app.schemas import CreateChat
+from app.models import Chat, ChatParticipant, User, Message
+from app.schemas import CreateChat, ChatPreview, ChatDetail
 
 
 class ChatService:
@@ -173,5 +174,119 @@ class ChatService:
         ).first()
         
         if not remaining:
+            self.session.delete(chat)
+            self.session.commit()
+
+    def list_user_chats(self, user: User, limit: int = 50, offset: int = 0) -> list[ChatPreview]:
+        """Return chat previews for user."""
+        chat_ids = self.session.exec(
+            select(ChatParticipant.chat_id)
+            .where(ChatParticipant.user_id == user.id)
+            .offset(offset)
+            .limit(limit)
+        ).all()
+
+        if not chat_ids:
+            return []
+
+        chats = self.session.exec(select(Chat).where(Chat.id.in_(chat_ids))).all()
+        previews: list[ChatPreview] = []
+
+        for chat in chats:
+            last_message = self.session.exec(
+                select(Message)
+                .where(Message.chat_id == chat.id)
+                .order_by(desc(Message.sent_at))
+                .limit(1)
+            ).first()
+
+            unread_count = len(
+                self.session.exec(
+                    select(Message).where(
+                        Message.chat_id == chat.id,
+                        Message.is_read == False,
+                        Message.sender_id != user.id,
+                    )
+                ).all()
+            )
+
+            participant_count = self.session.exec(
+                select(ChatParticipant).where(ChatParticipant.chat_id == chat.id)
+            ).all()
+
+            previews.append(
+                ChatPreview(
+                    id                = chat.id,
+                    name              = chat.name,
+                    is_group          = chat.is_group,
+                    participant_count = len(participant_count),
+                    last_message=(
+                        None
+                        if not last_message
+                        else {
+                            "text": last_message.text,
+                            "sent_at": last_message.sent_at,
+                            "sender_username": last_message.sender_username,
+                        }
+                    ),
+                    unread_count=unread_count,
+                    updated_at=last_message.sent_at if last_message else chat.created_at,
+                )
+            )
+
+        return previews
+
+    def get_chat_detail(self, chat_id: int) -> ChatDetail:
+        """Return chat detail with participants."""
+        chat = self.get_chat_or_404(chat_id)
+        participants = self.session.exec(
+            select(User).join(ChatParticipant).where(ChatParticipant.chat_id == chat.id)
+        ).all()
+
+        return ChatDetail(
+            id           = chat.id,
+            name         = chat.name,
+            is_group     = chat.is_group,
+            participants = participants,
+            created_at   = chat.created_at,
+            created_by   = chat.created_by,
+        )
+
+    def mark_chat_read(self, chat_id: int, user_id: int, message_id: int | None = None) -> None:
+        """Mark messages as read for a chat for messages up to message_id (or all)."""
+        query = select(Message).where(Message.chat_id == chat_id, Message.sender_id != user_id)
+        if message_id is not None:
+            query = query.where(Message.id <= message_id)
+
+        messages = self.session.exec(query).all()
+        for message in messages:
+            message.is_read = True
+
+        self.session.commit()
+
+    def delete_or_leave_chat(self, chat_id: int, user_id: int) -> None:
+        """Leave chat or delete it if user is creator or last participant."""
+        chat = self.get_chat_or_404(chat_id)
+        participant = self.assert_user_in_chat(chat_id, user_id)
+
+        if chat.is_group:
+            if chat.created_by != user_id:
+                self.session.delete(participant)
+                self.session.commit()
+                return
+
+            self.session.exec(delete(Message).where(Message.chat_id == chat_id))
+            self.session.exec(delete(ChatParticipant).where(ChatParticipant.chat_id == chat_id))
+            self.session.delete(chat)
+            self.session.commit()
+            return
+
+        self.session.delete(participant)
+        self.session.commit()
+
+        remaining = self.session.exec(select(ChatParticipant).where(ChatParticipant.chat_id == chat_id)).first()
+
+        if not remaining:
+            self.session.exec(delete(Message).where(Message.chat_id == chat_id))
             self.session.delete(chat)
             self.session.commit()

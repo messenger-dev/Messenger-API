@@ -4,7 +4,7 @@ from sqlalchemy import desc
 from sqlmodel import Session, select
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 
-from app.di import get_db, get_current_authenticated_user
+from app.di import get_db, get_current_authenticated_user, get_chat_service
 from app.services.message_relay import create_message_payload
 from app.schemas import MessageResponse, SendMessage
 from app.services.chat_service import ChatService
@@ -14,12 +14,6 @@ from app.models import Message, User
 
 
 messages_router = APIRouter(prefix="", tags=["Messages"])
-
-
-def get_chat_service(session: Session = Depends(get_db)) -> ChatService:
-    """Provide ChatService dependency."""
-    return ChatService(session)
-
 
 @messages_router.get("/chats/{chat_id}/messages", response_model=list[MessageResponse])
 def get_chat_messages(

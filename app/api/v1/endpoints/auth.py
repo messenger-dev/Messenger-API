@@ -4,13 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlmodel import Session
 
 from app.core.deps import get_db, get_current_authenticated_user, get_token_service
+from app.schemas import TokenResponse, UserLogin, UserPublic, UserRegister
 from app.core.limiter import limiter
 from app.models import User
-from app.schemas import TokenResponse, UserLogin, UserPublic, UserRegister
 from app.services.auth import (
-    get_password_hash,
-    get_user_by_email,
     get_user_by_username,
+    get_user_by_email,
+    get_password_hash,
     verify_password,
 )
 from app.services.token_service import TokenService
@@ -80,8 +80,15 @@ def me(current_user: User = Depends(get_current_authenticated_user)) -> User:
 
 @auth_router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(
+    request: Request,
     token_service: TokenService = Depends(get_token_service),
     current_user: User = Depends(get_current_authenticated_user),
 ) -> None:
-    """Revoke current access token."""
-    pass
+    """Revoke current access token by reading the Bearer token from header."""
+    auth = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not auth or not auth.lower().startswith("bearer "):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing bearer token")
+
+    token = auth.split(" ", 1)[1].strip()
+    token_service.revoke_token(token)
+    return None

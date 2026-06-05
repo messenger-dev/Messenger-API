@@ -32,13 +32,9 @@ def setup_database():
 def clean_database():
     SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
-
-    # Reset rate limiter storage between tests to avoid cross-test leakage
     try:
         from app.core import limiter as core_limiter
-
-        if hasattr(core_limiter.limiter, "_storage") and hasattr(core_limiter.limiter._storage, "reset"):
-            core_limiter.limiter._storage.reset()
+        core_limiter.limiter.reset()
     except Exception:
         pass
 
@@ -47,13 +43,5 @@ def clean_database():
 
 @pytest.fixture()
 def client():
-    try:
-        from app.core.limiter import limiter as _global_limiter
-
-        if hasattr(_global_limiter, "_storage") and hasattr(_global_limiter._storage, "reset"):
-            _global_limiter._storage.reset()
-    except Exception:
-        pass
-
     with TestClient(app) as client:
         yield client

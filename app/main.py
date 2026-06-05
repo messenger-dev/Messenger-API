@@ -5,18 +5,19 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.middleware import RequestIDMiddleware, ErrorHandlerMiddleware
 from app.api.v1.router import router as api_router
-from app.api.v1.websockets import ws_manager
-from app.core.config import settings
 from app.db.init_db import create_db_and_tables
-from app.core.limiter import limiter
+from app.api.v1.websockets import ws_manager
 from app.core.redis import get_redis_pubsub
+from app.core.limiter import limiter
+from app.core.config import settings
 
 
 async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
@@ -53,6 +54,8 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(ErrorHandlerMiddleware)
+app.add_middleware(RequestIDMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

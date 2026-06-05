@@ -1,19 +1,21 @@
 """WebSocket endpoint for real-time chat."""
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, Depends
 
 from app.services.token_service import TokenService
-from app.core.redis import get_redis_client
+from app.core.token import get_token_service
 from app.api.v1.websockets import ws_manager
 
 websocket_router = APIRouter(prefix="", tags=["WebSocket"])
 
 
 @websocket_router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)) -> None:
+async def websocket_endpoint(
+    websocket: WebSocket,
+    token: str = Query(...),
+    token_service: TokenService = Depends(get_token_service),
+) -> None:
     """WebSocket endpoint for real-time messaging."""
-    token_service = TokenService(get_redis_client())
-
     try:
         payload = token_service.verify_token(token)
         if token_service.is_token_revoked(token):
