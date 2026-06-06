@@ -1,95 +1,102 @@
 import json
+from fastapi import status
 
-from app.core.config import settings
 from app.api.v1.websockets import ws_manager
 
 
-def auth_headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+def test_login_rate_limit(client, create_user):
+    create_user("rateuser", "rate@example.com", "secret123")
 
-
-def create_user(client, username: str, email: str, password: str) -> dict:
-    response = client.post(
-        "/api/v1/auth/register",
-        json={"username": username, "email": email, "password": password},
-    )
-    assert response.status_code == 201
-    return response.json()
-
-
-def test_login_rate_limit(client):
-    # create a user
-    create_user(client, "rateuser", "rate@example.com", "secret123")
-
-    # perform allowed number of logins
-    for i in range(10):
-        resp = client.post(
+    for _ in range(10):
+        response = client.post(
             "/api/v1/auth/login",
             json={"email": "rate@example.com", "password": "secret123"},
         )
-        assert resp.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
 
-    # the next request should be rate-limited
-    resp = client.post(
+    response = client.post(
         "/api/v1/auth/login",
         json={"email": "rate@example.com", "password": "secret123"},
     )
-    assert resp.status_code == 429
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    assert response.json()["detail"] == "Rate limit exceeded"
 
 
 def test_register_rate_limit(client):
-    # register up to limit with distinct emails
     for i in range(5):
-        resp = client.post(
+        response = client.post(
             "/api/v1/auth/register",
             json={"username": f"u{i}", "email": f"u{i}@example.com", "password": "pwd12345"},
         )
-        assert resp.status_code == 201
+        assert response.status_code == status.HTTP_201_CREATED
 
-    # next registration should be rate-limited
-    resp = client.post(
+    response = client.post(
         "/api/v1/auth/register",
         json={"username": "uX", "email": "uX@example.com", "password": "pwd12345"},
     )
-    assert resp.status_code == 429
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    assert response.json()["detail"] == "Rate limit exceeded"
 
 
-def test_message_publishes_to_redis(monkeypatch, client):
-    # create two users and a chat
-    u1 = create_user(client, "ruser1", "r1@example.com", "pwd1")
-    u2 = create_user(client, "ruser2", "r2@example.com", "pwd2")
+def test_send_message_rate_limit(client, create_user, auth_headers):
+    sender = create_user("rateuser", "rate@example.com", "secret123")
+    receiver = create_user("friend", "friend@example.com", "secret123")
 
-    resp = client.post(
+    chat_response = client.post(
+        "/api/v1/chats",
+        json={"participant_ids": [receiver["user_id"]], "is_group": False},
+        headers=auth_headers(sender["access_token"]),
+    )
+    assert chat_response.status_code == status.HTTP_201_CREATED
+    chat_id = chat_response.json()["id"]
+
+    for _ in range(30):
+        response = client.post(
+            f"/api/v1/chats/{chat_id}/messages",
+            json={"text": "Quick message"},
+            headers=auth_headers(sender["access_token"]),
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    response = client.post(
+        f"/api/v1/chats/{chat_id}/messages",
+        json={"text": "Extra message"},
+        headers=auth_headers(sender["access_token"]),
+    )
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    assert response.json()["detail"] == "Rate limit exceeded"
+
+
+def test_message_publishes_to_redis(monkeypatch, client, create_user, auth_headers):
+    u1 = create_user("ruser1", "r1@example.com", "pwd1")
+    u2 = create_user("ruser2", "r2@example.com", "pwd2")
+
+    response = client.post(
         "/api/v1/chats",
         json={"name": "RedisChat", "participant_ids": [u2["user_id"]], "is_group": False},
         headers=auth_headers(u1["access_token"]),
     )
-    assert resp.status_code == 201
-    chat = resp.json()
-    chat_id = chat["id"]
+    assert response.status_code == status.HTTP_201_CREATED
+    chat_id = response.json()["id"]
 
-    # Monkeypatch ws_manager.redis to capture publish calls
-    published = {}
+    published: dict[str, object] = {}
 
     class DummyRedis:
         async def publish(self, channel, message):
             published["channel"] = channel
-            # message might be dict or json-string
             published["message"] = message
 
     monkeypatch.setattr(ws_manager, "redis", DummyRedis())
 
-    send_resp = client.post(
+    send_response = client.post(
         f"/api/v1/chats/{chat_id}/messages",
         json={"text": "Hello via HTTP"},
         headers=auth_headers(u1["access_token"]),
     )
-    assert send_resp.status_code == 201
+    assert send_response.status_code == status.HTTP_201_CREATED
 
-    # Ensure redis.publish was called
     assert published.get("channel") == f"chat:{chat_id}"
     msg = published.get("message")
-    # if message was serialized, convert
     if isinstance(msg, str):
         msg = json.loads(msg)
     assert msg.get("text") == "Hello via HTTP"
