@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlmodel import Session
 
-from app.core.deps import get_db, get_current_authenticated_user, get_token_service
+from app.di import get_db, get_current_authenticated_user, get_token_service
 from app.schemas import TokenResponse, UserLogin, UserPublic, UserRegister
 from app.core.limiter import limiter
 from app.models import User

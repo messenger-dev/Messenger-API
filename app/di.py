@@ -7,11 +7,10 @@ from typing import Iterator
 from fastapi import Depends
 from sqlmodel import Session
 
-from app.core.redis import get_redis_client, get_redis_pubsub
+from app.core.redis import PubSub, get_redis_client, get_redis_pubsub
 from app.services.chat_service import ChatService
 from app.core.security import get_current_user
 from app.core.token import get_token_service
-from app.interfaces.pubsub import PubSub
 from app.db.session import get_session
 from sqlmodel import Session
 from app.models import User

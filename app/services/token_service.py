@@ -41,8 +41,6 @@ class TokenService:
 
         expires_at = payload.get("exp")
 
-        # Prefer using `jti` claim as the revocation identifier when available;
-        # fall back to full token string otherwise.
         jti = payload.get("jti")
 
         if not expires_at:

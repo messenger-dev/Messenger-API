@@ -5,14 +5,22 @@ from __future__ import annotations
 import json
 import asyncio
 from contextlib import suppress
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Protocol, runtime_checkable
 
 import redis
 import redis.asyncio as redis_async
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.interfaces.pubsub import PubSub
+
+
+@runtime_checkable
+class PubSub(Protocol):
+    async def publish(self, channel: str, message: Any) -> None: ...
+
+    async def start_listening(self, handler: Callable[[str, dict], Coroutine]) -> None: ...
+
+    async def stop(self) -> None: ...
 
 
 class RedisClient:
